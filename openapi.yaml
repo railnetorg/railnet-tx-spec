@@ -1,0 +1,302 @@
+openapi: 3.1.0
+info:
+  title: Railnet transaction API
+  version: "1"
+  description: |
+    Builds the transactions a user signs to deposit into a Railnet Conduit and to redeem from it.
+    Each call returns one unsigned transaction, `{ to, data, value }`. The service encodes calldata
+    and nothing else: it reads no chain, holds no key and keeps no state.
+
+    **Verify every response before signing.** The calldata is deterministic: the response is a
+    reference to check against, not a source of trust.
+
+    1. Send every field yourself. Your own `salt` with every deposit and redeem: 32 random bytes,
+       new for each transaction. The service draws no salt and applies no default.
+    2. The two base URLs you were given are two independent deployments. Send the same request
+       to both and stop on any difference or missing answer: never fall back on one of them.
+    3. Rebuild the transaction locally from the request you sent and compare it byte for byte
+       with each response. [verify.ts](verify.ts) does it with no dependency. Sign the
+       transaction it returns, never a response.
+    4. Simulate the transaction.
+
+    `conduit`, `token` and `vehicle` come from your own registry, never from an API.
+
+    The examples are the inputs of two Ethereum mainnet transactions, on a Conduit of the staging
+    deployment: sent to the service, they are answered `403`. [SPEC.md](SPEC.md) gives the bytes
+    behind each of them.
+servers:
+  - url: "{baseUrl}"
+    description: The base URL you were given.
+    variables:
+      baseUrl:
+        default: https://tx.example.com
+security:
+  - apiKey: []
+paths:
+  /v1/approve:
+    post:
+      summary: Approve
+      description: |
+        Builds `token.approve(conduit, amount)`: the allowance the Conduit needs before a deposit.
+        The transaction is sent to the token.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApproveRequest"
+            examples:
+              approve:
+                summary: Approve 1 USDC
+                value:
+                  conduit: "0x6b2bc4d0614d7744dc5f71b7a2555a9cef2535d9"
+                  token: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
+                  amount: "1000000"
+      responses:
+        "200":
+          description: The transaction to verify.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Transaction"
+              examples:
+                approve:
+                  summary: Approve 1 USDC
+                  value:
+                    to: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
+                    data: "0x095ea7b30000000000000000000000006b2bc4d0614d7744dc5f71b7a2555a9cef2535d900000000000000000000000000000000000000000000000000000000000f4240"
+                    value: "0"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "413":
+          $ref: "#/components/responses/TooLarge"
+  /v1/deposit:
+    post:
+      summary: Deposit
+      description: |
+        Builds `conduit.create(query, sender, salt)`: a deposit of `amount` of `token`, for at least
+        `minOutput` Vehicle shares. The transaction is sent to the Conduit, by `sender`, who
+        receives the Conduit shares. Any other sender makes it revert.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DepositRequest"
+            examples:
+              deposit:
+                summary: Deposit 1 USDC
+                value:
+                  conduit: "0x6b2bc4d0614d7744dc5f71b7a2555a9cef2535d9"
+                  vehicle: "0xce532ed9019010657840a1484895ec00d5693a48"
+                  token: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
+                  amount: "1000000"
+                  sender: "0xde6308e382dca8b725bc66a0575304840e08d9a8"
+                  minOutput: "833746125109265740"
+                  salt: "0xfd998ee5f4a1caddeefa25ce83121601e5326a0c70fe6601c3a95f71a67770c4"
+      responses:
+        "200":
+          description: The transaction to verify.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Transaction"
+              examples:
+                deposit:
+                  summary: Deposit 1 USDC
+                  value:
+                    to: "0x6b2bc4d0614d7744dc5f71b7a2555a9cef2535d9"
+                    data: "0x50bb3af40000000000000000000000000000000000000000000000000000000000000060000000000000000000000000de6308e382dca8b725bc66a0575304840e08d9a8fd998ee5f4a1caddeefa25ce83121601e5326a0c70fe6601c3a95f71a67770c40000000000000000000000006b2bc4d0614d7744dc5f71b7a2555a9cef2535d90000000000000000000000006b2bc4d0614d7744dc5f71b7a2555a9cef2535d9000000000000000000000000a0b86991c6218b36c1d19d4a2e9eb0ce3606eb4800000000000000000000000000000000000000000000000000000000000f4240000000000000000000000000ce532ed9019010657840a1484895ec00d5693a480000000000000000000000000000000000000000000000000b920faef3ff054c0000000000000000000000000000000000000000000000000000000000000000a33d32c6331dd73760fa94e36f17cb757dd0f74cfac71e8386176cff485b2b7700000000000000000000000000000000000000000000000000000000000001200000000000000000000000000000000000000000000000000000000000000000"
+                    value: "0"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "413":
+          $ref: "#/components/responses/TooLarge"
+  /v1/redeem:
+    post:
+      summary: Redeem
+      description: |
+        Builds `conduit.createRedeemFromConduitShares(shares, (token, minOutput), salt, receiver)`:
+        a redeem of `shares` Conduit shares for at least `minOutput` of `token`. The transaction is
+        sent to the Conduit. `receiver` is paid whoever sends it: set it to the account that sends
+        the transaction.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RedeemRequest"
+            examples:
+              redeem:
+                summary: Redeem about 0.5 Conduit share to USDC
+                value:
+                  conduit: "0x6b2bc4d0614d7744dc5f71b7a2555a9cef2535d9"
+                  token: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
+                  shares: "498798408652837363"
+                  receiver: "0xfe2f597f40da9c6abf6dea0b9cefe376a6117c7a"
+                  minOutput: "498008"
+                  salt: "0x1483afb0a95e65f56386f4fb6de2d64f3802d6382a5ebec628c6ef544c070035"
+      responses:
+        "200":
+          description: The transaction to verify.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Transaction"
+              examples:
+                redeem:
+                  summary: Redeem about 0.5 Conduit share to USDC
+                  value:
+                    to: "0x6b2bc4d0614d7744dc5f71b7a2555a9cef2535d9"
+                    data: "0x4c717f8d00000000000000000000000000000000000000000000000006ec16828a4851f3000000000000000000000000a0b86991c6218b36c1d19d4a2e9eb0ce3606eb4800000000000000000000000000000000000000000000000000000000000799581483afb0a95e65f56386f4fb6de2d64f3802d6382a5ebec628c6ef544c070035000000000000000000000000fe2f597f40da9c6abf6dea0b9cefe376a6117c7a"
+                    value: "0"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "413":
+          $ref: "#/components/responses/TooLarge"
+components:
+  securitySchemes:
+    apiKey:
+      type: apiKey
+      in: header
+      name: x-api-key
+      description: The API key you were given. Required on every request.
+  schemas:
+    Address:
+      type: string
+      pattern: "^0x[0-9a-fA-F]{40}$"
+      description: A 20-byte address, lowercase or EIP-55 checksummed. Never the zero address.
+    Uint256:
+      type: string
+      pattern: "^[0-9]+$"
+      description: An unsigned integer up to 2^256 - 1, as a decimal string in the smallest unit. Never a JSON number.
+    Bytes32:
+      type: string
+      pattern: "^0x[0-9a-f]{64}$"
+      description: 32 bytes of lowercase hex.
+    ApproveRequest:
+      type: object
+      required: [conduit, token, amount]
+      properties:
+        conduit:
+          $ref: "#/components/schemas/Address"
+          description: The Conduit, which becomes the spender.
+        token:
+          $ref: "#/components/schemas/Address"
+          description: The Conduit's asset, `conduit.asset()`.
+        amount:
+          $ref: "#/components/schemas/Uint256"
+          description: The allowance, in the token's smallest unit.
+    DepositRequest:
+      type: object
+      required: [conduit, vehicle, token, amount, sender, minOutput, salt]
+      properties:
+        conduit:
+          $ref: "#/components/schemas/Address"
+          description: The Conduit to deposit into.
+        vehicle:
+          $ref: "#/components/schemas/Address"
+          description: The Conduit's Vehicle, `conduit.getVehicle()`. It is the asset of the deposit's output.
+        token:
+          $ref: "#/components/schemas/Address"
+          description: The Conduit's asset, `conduit.asset()`.
+        amount:
+          $ref: "#/components/schemas/Uint256"
+          description: The amount to deposit, in the token's smallest unit.
+        sender:
+          $ref: "#/components/schemas/Address"
+          description: The account that sends the transaction and receives the Conduit shares.
+        minOutput:
+          $ref: "#/components/schemas/Uint256"
+          description: A floor in Vehicle shares. `"0"` sets none.
+        salt:
+          $ref: "#/components/schemas/Bytes32"
+          description: Yours, 32 random bytes, new for each transaction. The same request always returns the same bytes.
+    RedeemRequest:
+      type: object
+      required: [conduit, token, shares, receiver, minOutput, salt]
+      properties:
+        conduit:
+          $ref: "#/components/schemas/Address"
+          description: The Conduit to redeem from.
+        token:
+          $ref: "#/components/schemas/Address"
+          description: The Conduit's asset, `conduit.asset()`.
+        shares:
+          $ref: "#/components/schemas/Uint256"
+          description: The Conduit shares to redeem, in their smallest unit.
+        receiver:
+          $ref: "#/components/schemas/Address"
+          description: The account that is paid.
+        minOutput:
+          $ref: "#/components/schemas/Uint256"
+          description: A floor in the token, before the Conduit's fees. `"0"` sets none.
+        salt:
+          $ref: "#/components/schemas/Bytes32"
+          description: Yours, 32 random bytes, new for each transaction. The same request always returns the same bytes.
+    Transaction:
+      type: object
+      required: [to, data, value]
+      properties:
+        to:
+          $ref: "#/components/schemas/Address"
+          description: The token for an approve, the Conduit for a deposit or a redeem. Written as you sent it.
+        data:
+          type: string
+          description: The calldata, lowercase hex.
+        value:
+          type: string
+          enum: ["0"]
+          description: Always `"0"`.
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          description: What was refused, naming the field.
+  responses:
+    BadRequest:
+      description: The body is not valid, or `token` or `vehicle` is not the Conduit's.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: "amount: uint256 decimal string expected"
+    Unauthorized:
+      description: No `x-api-key`, or one that is not registered. Any other path or method is a `404` once the key is accepted.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: unauthorized
+    Forbidden:
+      description: The deployment does not serve this Conduit.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: "conduit: not served"
+    TooLarge:
+      description: The body is over 4096 bytes.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: "body: 4096 bytes at most"

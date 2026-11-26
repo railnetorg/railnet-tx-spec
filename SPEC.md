@@ -1,6 +1,6 @@
 # Railnet approve, deposit and redeem transactions: specification
 
-What a Railnet transaction service returns for an approve, a deposit and a redeem on a Conduit, byte for byte, and what the verifier (`verify.ts`) does with it. Where an implementation and this file disagree, this file is right.
+What a Railnet transaction service returns for an approve, a deposit and a redeem on a Conduit, byte for byte, and what the verifier (`verify.ts`) does with it. Where an implementation and this file disagree, this file is right. The HTTP side, routes, key and statuses, is in [openapi.yaml](openapi.yaml).
 
 The service builds one transaction per request, from the request alone: it reads no chain and holds no key. Its Conduits are on Ethereum mainnet, chain id 1. The chain id, the nonce and the gas are the integrator's to set.
 
