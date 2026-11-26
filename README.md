@@ -6,7 +6,7 @@ A verifier for the transactions a Railnet transaction service returns. You rebui
 |---|---|
 | [verify.ts](verify.ts) | the verifier: one file to copy, no import, no dependency |
 | [SPEC.md](SPEC.md) | the request, the three calldata layouts, what the verifier checks and what it does not |
-| [openapi.yaml](openapi.yaml) | the HTTP side: the three routes, the key, the statuses |
+| [openapi.yaml](openapi.yaml) | the HTTP side: the three routes, the key, the statuses. [openapi.md](openapi.md) is the same file, readable here |
 | [vectors.json](vectors.json) | 7 requests with the transaction they must give and 34 responses that must be refused, for a verifier written in another language |
 | `test/` | the verifier against the vectors and two Ethereum mainnet transactions |
 

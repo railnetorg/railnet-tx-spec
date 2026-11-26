@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test'
+import { markdown } from '../openapi.build.ts'
 import vectors from '../vectors.json'
 
 type Example = { value: unknown }
@@ -40,4 +41,8 @@ test('openapi.yaml requires every field of a request and returns to, data and va
   expect(Object.keys(DepositRequest?.properties ?? {}).toSorted()).toEqual(['amount', 'conduit', 'minOutput', 'salt', 'sender', 'token', 'vehicle'])
   expect(Transaction?.required.toSorted()).toEqual(['data', 'to', 'value'])
   expect(Object.keys(Transaction?.properties ?? {}).toSorted()).toEqual(['data', 'to', 'value'])
+})
+
+test('openapi.md is what openapi.build.ts writes from openapi.yaml, so the Markdown never says what the YAML does not', async () => {
+  expect(await Bun.file(new URL('../openapi.md', import.meta.url)).text()).toBe(markdown)
 })
